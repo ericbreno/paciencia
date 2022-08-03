@@ -3,6 +3,12 @@
   <title>Paciência</title>
 
   <style>
+    :root {
+      --mounts-gap: 1em;
+      font-size: 3vh;
+      user-select: none;
+    }
+
     .board,
     .board * {
       display: flex;
@@ -10,22 +16,23 @@
 
     .board {
       flex-wrap: wrap;
-      width: 80vw;
-      height: 70vh;
-      padding: 20px 30px;
+      width: 30.5em;
+      height: 22em;
+      padding: 1.5em 1.5em;
       background: rgb(34, 105, 34);
     }
 
     .mounts-container {
-      width: 80%;
+      gap: var(--mounts-gap);
     }
 
     .deck-container {
-      width: 20%;
+      margin-left: auto;
+      gap: .875em;
     }
 
     .stacks-container {
-      gap: 15px;
+      justify-content: space-between;
       width: 100%;
     }
 
@@ -35,18 +42,27 @@
 
     .card {
       justify-content: center;
-      height: 80px;
-      width: 55px;
+      height: 5em;
+      width: 3.5em;
       border-radius: 5px;
       background: whitesmoke;
       outline: 1px solid gray;
     }
 
-    .card:not(:first-child) {
-      margin-top: -65px;
+    .red {
+      color: rgb(156, 8, 8);
     }
 
-    .card.flipped {
+    .black {
+      color: rgb(22, 22, 22);
+    }
+
+    .stack>.card:not(:first-child) {
+      margin-top: -4em;
+    }
+
+    .stack>.card:not(:last-child),
+    .deck-container > .card:is(:last-child)  {
       color: transparent;
       background: rgb(32, 32, 87);
     }
@@ -61,32 +77,72 @@
   <div id="container"></div>
 
   <script>
+    // helpers
+    const onClick = (element, cb) => element.addEventListener('click', cb);
+
+    // Create Element
     const cel = (classes, parent, type = 'div') => {
       const element = document.createElement(type)
       element.setAttribute('class', classes)
       parent.appendChild(element)
       return element
     }
+  </script>
 
+  <script>
+    // Models
     class Board {
       constructor() {
-        this.stacks = []
+        const cards = availableCards.sort(() => Math.random() - 0.5)
+        this.stacks = Array(7).fill(null).map((_, index) => new Stack(cards.splice(0, index + 1)))
+        this.mounts = Array(4).fill(null).map(() => new Mount())
+        this.deck = new Deck(cards)
+        this.moves = 0
+      }
+
+      handleAction({ action, card }) {
+        switch (action) {
+          case 'mount':
+            this.mounts[card.mount].addCard(card)
+            break
+          case 'stack':
+            this.stacks[card.stack].addCard(card)
+            break
+          case 'deck':
+            this.moves++;
+            break
+        }
       }
 
       render(parent) {
+        parent.innerHTML = ''
         const container = cel('board', parent)
 
-        const mountsContainer = cel('mounts-container', container)
-        const deckContainer = cel('deck-container', container)
-        const stacksContainer = cel('stacks-container', container)
+        this.mounts.forEach(mount => mount.render(cel('mounts-container', container)))
+        this.deck.render(cel('deck-container', container))
+        this.stacks.forEach(stack => stack.render(cel('stacks-container', container)))
+      }
+    }
 
-        this.stacks.forEach(stack => stack.render(stacksContainer))
+    class Mount {
+      constructor() {
+        this.cards = []
+        this.type = ''
+      }
+
+      render(parent) {
+        const lastCard = this.cards[this.cards.length - 1]
+        if (lastCard) {
+          lastCard.render(parent)
+        } else {
+          new Card().render(parent)
+        }
       }
     }
 
     class Stack {
-      constructor() {
-        this.cards = []
+      constructor(cards) {
+        this.cards = cards
       }
 
       render(parent) {
@@ -98,38 +154,76 @@
       }
     }
 
-    class Card {
-      constructor(number, type, flipped = true) {
-        this.number = number
-        this.type = type
-        this.flipped = flipped
+    class Deck {
+      constructor(cards) {
+        this.cards = cards
+        this.flippedCards = []
+      }
+
+      flip() {
+        if (this.cards.length) {
+          this.flippedCards.push(this.cards.pop())
+        } else {
+          this.cards = this.flippedCards.reverse()
+          this.flippedCards = []
+        }
       }
 
       render(parent) {
-        const container = cel(`card ${this.flipped ? 'flipped' : ''} ${!this.number ? 'blank' : ''}`, parent)
-        if (this.number) {
-          cel('number', container, 'span').innerText = this.number
-          cel('type', container, 'span').innerText = this.type
+        parent.innerHTML = ''
+        const lastCard = this.cards[this.cards.length - 1]
+        const flippedCard = this.flippedCards[this.flippedCards.length - 1]
+
+        if (flippedCard) {
+          flippedCard.render(parent)
+        } else {
+          new Card().render(parent)
         }
+
+        let deckCard = null
+        if (lastCard) {
+          deckCard = lastCard.render(parent)
+        } else {
+          deckCard = new Card().render(parent)
+        }
+
+        onClick(deckCard, () => {
+          this.flip()
+          this.render(parent)
+        })
       }
     }
 
+    class Card {
+      constructor({ label, value, type } = {}) {
+        this.label = label
+        this.value = value
+        this.type = type
+      }
+
+      render(parent) {
+        const isRed = [types.DIAMONDS, types.HEARTS].includes(this.type)
+        const classes = ['card', !this.label ? 'blank' : '', isRed ? 'red' : 'black']
+        const container = cel(classes.join(' '), parent)
+        if (this.label) {
+          cel('number', container, 'span').innerText = this.label
+          cel('type', container, 'span').innerText = this.type
+        }
+        return container
+      }
+    }
+  </script>
+
+  <script>
+    const types = { SPADES: '♠', HEARTS: '♥', DIAMONDS: '♦', CLUBS: '♣' };
+    const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
+    const availableCards = Object.values(types).map(
+      type => values.map(
+        (label, value) => new Card({ label, value, type })
+      )
+    ).reduce((ac, it) => ac.concat(it))
+
     const board = new Board()
-    board.stacks = [new Stack(), new Stack(), new Stack(), new Stack(), new Stack(), new Stack()]
-    board.stacks[0].cards = [
-      new Card(5, '♠'),
-      new Card(4, '♢'),
-      new Card(2, '♡', false),
-      new Card(1, '♣', false)
-    ]
-
-    board.stacks[1].cards = [
-      new Card(6, '♠'),
-      new Card(5, '♢'),
-      new Card(4, '♡', false),
-      new Card(3, '♣', false)
-    ]
-
     board.render(container)
   </script>
 </body>
