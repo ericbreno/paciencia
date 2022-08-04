@@ -10,7 +10,10 @@
     }
 
     .board,
-    .board * {
+    .mounts-container,
+    .deck-container,
+    .stacks-container,
+    .card {
       display: flex;
     }
 
@@ -38,6 +41,8 @@
 
     .stack {
       flex-direction: column;
+      min-height: 5em;
+      width: 3.5em;
     }
 
     .card {
@@ -46,7 +51,7 @@
       width: 3.5em;
       border-radius: 5px;
       background: whitesmoke;
-      outline: 1px solid gray;
+      border: 1px solid gray;
     }
 
     .red {
@@ -57,14 +62,33 @@
       color: rgb(22, 22, 22);
     }
 
-    .stack>.card:not(:first-child) {
+    .stack>:not(.blank) ~ .card:not(:first-of-type) {
       margin-top: -4em;
     }
 
-    .stack>.card:not(:last-child),
-    .deck-container > .card:is(:last-child)  {
+    .stack>.card:not(:last-child):not(.revealed),
+    .deck-hidden>.card:not(.blank) {
       color: transparent;
       background: rgb(32, 32, 87);
+    }
+
+    .deck-hidden,
+    .deck-flipped,
+    .stack {
+      position: relative;
+    }
+
+    .deck-hidden>.card:not(:first-child),
+    .mount>.card:not(:last-child),
+    .deck-flipped>.card:not(:last-child) {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: -1;
+    }
+
+    .stack>.card.blank {
+      margin-bottom: calc(-100% - 1.6em);
     }
 
     .card.blank {
@@ -84,9 +108,23 @@
     const cel = (classes, parent, type = 'div') => {
       const element = document.createElement(type)
       element.setAttribute('class', classes)
-      parent.appendChild(element)
+      parent && parent.appendChild(element)
       return element
     }
+
+    const getLast = object => {
+      const children = object.element.childNodes
+      return children[children.length - 1]
+    }
+
+    const getLastCard = (object, elements, cards) => {
+      const lastCardElement = getLast(object)
+      const cardIndex = elements.indexOf(lastCardElement)
+      return cards[cardIndex] || {}
+    }
+
+    const isRed = (card) => [types.DIAMONDS, types.HEARTS].includes(card.type)
+    const nonEmpty = (container) => !!container.element.childNodes[1]
   </script>
 
   <script>
@@ -94,10 +132,59 @@
     class Board {
       constructor() {
         const cards = availableCards.sort(() => Math.random() - 0.5)
-        this.stacks = Array(7).fill(null).map((_, index) => new Stack(cards.splice(0, index + 1)))
+        const cardsElements = cards.map(card => card.element)
+        const cardsElementsCopy = [...cardsElements]
+
+        this.stacks = Array(7).fill(null).map((_, index) => new Stack(cardsElements.splice(0, index + 1)))
         this.mounts = Array(4).fill(null).map(() => new Mount())
-        this.deck = new Deck(cards)
+        this.deck = new Deck(cardsElements)
         this.moves = 0
+
+        cards.forEach(card => onClick(card.element, () => {
+          const parentChildren = card.element.parentElement.childNodes
+          const isLastChild = parentChildren[parentChildren.length - 1] === card.element
+          if (!isLastChild || !parentChildren[1]) {
+            console.log('denying play, not last card')
+            return
+          }
+
+          const isFirstCard = card.value === 0
+          if (isFirstCard) {
+            const mountEmpty = this.mounts.find(mount => !mount.element.childNodes[1])
+            mountEmpty.element.appendChild(card.element)
+            return
+          }
+
+          const availableMount = this.mounts.filter(nonEmpty).find(mount => {
+            const lastCard = getLastCard(mount, cardsElementsCopy, cards)
+            return lastCard.type === card.type && (lastCard.value + 1) === card.value
+          })
+
+          if (availableMount) {
+            availableMount.element.appendChild(card.element)
+            return
+          }
+
+          const availableStack = this.stacks.find(stack => {
+            const lastCard = getLastCard(stack, cardsElementsCopy, cards)
+            const diffColor = isRed(lastCard) !== isRed(card)
+            const isOneGreater = diffColor && (lastCard.value - 1) === card.value
+            const isK = !lastCard.type && card.value === 12
+            return isK || isOneGreater
+          })
+
+          if (availableStack) {
+            const lastCardElement = getLast(availableStack)
+            const cardIndex = cardsElementsCopy.indexOf(lastCardElement)
+            const lastCard = cards[cardIndex]
+            if (lastCard) {
+              lastCard.setRevealed()
+            }
+
+            availableStack.element.appendChild(card.element);
+            return
+          }
+        }))
       }
 
       handleAction({ action, card }) {
@@ -118,79 +205,52 @@
         parent.innerHTML = ''
         const container = cel('board', parent)
 
-        this.mounts.forEach(mount => mount.render(cel('mounts-container', container)))
-        this.deck.render(cel('deck-container', container))
-        this.stacks.forEach(stack => stack.render(cel('stacks-container', container)))
+        const mountsContainer = cel('mounts-container', container)
+        container.appendChild(this.deck.element)
+        const stacksContainer = cel('stacks-container', container)
+
+        mountsContainer.append(...this.mounts.map(mount => mount.element))
+        stacksContainer.append(...this.stacks.map(stack => stack.element))
       }
     }
 
     class Mount {
-      constructor() {
-        this.cards = []
+      constructor(cards = []) {
         this.type = ''
-      }
-
-      render(parent) {
-        const lastCard = this.cards[this.cards.length - 1]
-        if (lastCard) {
-          lastCard.render(parent)
-        } else {
-          new Card().render(parent)
-        }
+        this.element = cel('mount')
+        this.element.append(new Card().element, ...cards)
       }
     }
 
     class Stack {
       constructor(cards) {
-        this.cards = cards
-      }
-
-      render(parent) {
-        const container = cel('stack', parent)
-        this.cards.forEach(card => card.render(container))
-        if (this.cards.length === 0) {
-          new Card().render(container)
-        }
+        this.element = cel('stack')
+        this.element.append(new Card().element, ...cards)
       }
     }
 
     class Deck {
       constructor(cards) {
-        this.cards = cards
-        this.flippedCards = []
+        this.element = cel('deck-container')
+        this.flipped = cel('deck-flipped', this.element)
+        this.hidden = cel('deck-hidden', this.element)
+
+        this.flipped.appendChild(new Card().element)
+        this.hidden.append(...cards)
+
+        onClick(this.hidden, () => this.flip())
       }
 
       flip() {
-        if (this.cards.length) {
-          this.flippedCards.push(this.cards.pop())
-        } else {
-          this.cards = this.flippedCards.reverse()
-          this.flippedCards = []
-        }
-      }
-
-      render(parent) {
-        parent.innerHTML = ''
-        const lastCard = this.cards[this.cards.length - 1]
-        const flippedCard = this.flippedCards[this.flippedCards.length - 1]
-
-        if (flippedCard) {
-          flippedCard.render(parent)
-        } else {
-          new Card().render(parent)
+        if (!this.hidden.childNodes[1]) {
+          this.hidden.append(...this.flipped.childNodes)
         }
 
-        let deckCard = null
-        if (lastCard) {
-          deckCard = lastCard.render(parent)
-        } else {
-          deckCard = new Card().render(parent)
-        }
+        this.flipped.appendChild(this.hidden.childNodes[0])
 
-        onClick(deckCard, () => {
-          this.flip()
-          this.render(parent)
-        })
+        if (!this.hidden.childNodes[0]) {
+          this.hidden.appendChild(this.flipped.childNodes[0])
+        }
       }
     }
 
@@ -199,17 +259,17 @@
         this.label = label
         this.value = value
         this.type = type
+
+        const classes = ['card', !label ? 'blank' : '', isRed(this) ? 'red' : 'black']
+        this.element = cel(classes.join(' '))
+        if (type) {
+          cel('number', this.element, 'span').innerText = label
+          cel('type', this.element, 'span').innerText = type
+        }
       }
 
-      render(parent) {
-        const isRed = [types.DIAMONDS, types.HEARTS].includes(this.type)
-        const classes = ['card', !this.label ? 'blank' : '', isRed ? 'red' : 'black']
-        const container = cel(classes.join(' '), parent)
-        if (this.label) {
-          cel('number', container, 'span').innerText = this.label
-          cel('type', container, 'span').innerText = this.type
-        }
-        return container
+      setRevealed() {
+        this.element.classList.add('revealed')
       }
     }
   </script>
